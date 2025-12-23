@@ -1,0 +1,8 @@
+/home/ubuntu/dev/springboot-order-service/src/main/java/com/example/ecommerce/OrderServiceApplication.java
+/home/ubuntu/dev/springboot-order-service/src/main/java/com/example/ecommerce/controller/OrderController.java
+/home/ubuntu/dev/springboot-order-service/src/main/java/com/example/ecommerce/entity/Order.java
+/home/ubuntu/dev/springboot-order-service/src/main/java/com/example/ecommerce/entity/OrderItem.java
+/home/ubuntu/dev/springboot-order-service/src/main/java/com/example/ecommerce/entity/ShippingInfo.java
+/home/ubuntu/dev/springboot-order-service/src/main/java/com/example/ecommerce/loadtest/OrderServiceLoadGenerator.java
+/home/ubuntu/dev/springboot-order-service/src/main/java/com/example/ecommerce/repository/OrderRepository.java
+/home/ubuntu/dev/springboot-order-service/src/main/java/com/example/ecommerce/service/OrderService.java

@@ -1,0 +1,8 @@
+com/example/ecommerce/service/OrderService.class
+com/example/ecommerce/entity/OrderItem.class
+com/example/ecommerce/OrderServiceApplication.class
+com/example/ecommerce/entity/Order.class
+com/example/ecommerce/controller/OrderController.class
+com/example/ecommerce/repository/OrderRepository.class
+com/example/ecommerce/entity/ShippingInfo.class
+com/example/ecommerce/loadtest/OrderServiceLoadGenerator.class

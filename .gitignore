@@ -1,0 +1,6 @@
+*.jar
+*.out
+*.sql
+*.json
+*.class
+*.pid
