@@ -1,0 +1,90 @@
+name: Create Release on Tag
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+env:
+  JAVA_VERSION: '17'
+
+jobs:
+  build-and-release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          VERSION=${TAG#v}
+          
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Release version: $VERSION"
+      
+      - name: Set up JDK
+        uses: actions/setup-java@v3
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: 'maven'
+      
+      - name: Update pom.xml to match tag version
+        run: |
+          mvn versions:set -DnewVersion=${{ steps.version.outputs.version }} -DgenerateBackupPoms=false
+      
+      - name: Build with Maven
+        run: |
+          mvn clean package -DskipTests
+          
+          ARTIFACT_ID=$(grep -oPm1 "(?<=<artifactId>)[^<]+" pom.xml | head -1)
+          JAR_NAME="$ARTIFACT_ID-${{ steps.version.outputs.version }}.jar"
+          
+          if [ ! -f "target/$JAR_NAME" ]; then
+            echo "Error: JAR file not found!"
+            exit 1
+          fi
+          
+          echo "JAR_NAME=$JAR_NAME" >> $GITHUB_ENV
+      
+      - name: Run tests
+        run: mvn test
+      
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 ${{ steps.version.outputs.tag }}^ 2>/dev/null || echo "")
+          
+          if [ -z "$PREVIOUS_TAG" ]; then
+            CHANGES=$(git log --pretty=format:"- %s (%h)" --no-merges)
+          else
+            CHANGES=$(git log ${PREVIOUS_TAG}..${{ steps.version.outputs.tag }} --pretty=format:"- %s (%h)" --no-merges)
+          fi
+          
+          cat > changelog.md << EOF
+          ## What's Changed
+          
+          ${CHANGES}
+          
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREVIOUS_TAG}...${{ steps.version.outputs.tag }}
+          EOF
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Release ${{ steps.version.outputs.version }}
+          body_path: changelog.md
+          files: |
+            target/${{ env.JAR_NAME }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
