@@ -1,0 +1,90 @@
+name: Deploy to VM
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+jobs:
+  deploy:
+    # Only run if PR was merged (not just closed)
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          ref: main  # Deploy the merged main branch
+      
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'  # Adjust to your version
+          distribution: 'temurin'
+      
+      - name: Build application
+        run: |
+          ./mvnw clean package -DskipTests
+          # Or: ./gradlew build
+      
+      - name: Copy artifact to VM
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          source: "target/*.jar"  # Adjust path
+          target: "/opt/myapp/releases"
+      
+      - name: Deploy on VM
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            # Stop the old process
+            sudo systemctl stop myapp
+            
+            # Backup current version
+            sudo cp /opt/myapp/current/app.jar /opt/myapp/backup/app-$(date +%Y%m%d-%H%M%S).jar
+            
+            # Deploy new version
+            sudo cp /opt/myapp/releases/target/*.jar /opt/myapp/current/app.jar
+            
+            # Start the new process
+            sudo systemctl start myapp
+            
+            # Wait for startup
+            sleep 10
+            
+            # Health check
+            if curl -f http://localhost:8080/actuator/health; then
+              echo "Deployment successful!"
+            else
+              echo "Health check failed, rolling back..."
+              sudo systemctl stop myapp
+              sudo cp /opt/myapp/backup/app-*.jar /opt/myapp/current/app.jar
+              sudo systemctl start myapp
+              exit 1
+            fi
+      
+      - name: Notify Dynatrace of Deployment
+        run: |
+          curl -X POST "https://your-dynatrace-tenant.live.dynatrace.com/api/v1/events" \
+            -H "Authorization: Api-Token ${{ secrets.DYNATRACE_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "eventType": "CUSTOM_DEPLOYMENT",
+              "source": "GitHub Actions",
+              "deploymentName": "Rollback to previous branch",
+              "deploymentVersion": "${{ github.sha }}",
+              "attachRules": {
+                "tagRule": {
+                  "meTypes": ["SERVICE"],
+                  "tags": ["github_repo:${{ github.repository }}"]
+                }
+              }
+            }'

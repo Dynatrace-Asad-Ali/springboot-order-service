@@ -1,0 +1,200 @@
+name: Deploy Release to VM
+
+on:
+  # Manual trigger with version selection
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Release version to deploy (e.g., v1.2.0)'
+        required: true
+        type: string
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - production
+          - staging
+          - development
+      skip_health_check:
+        description: 'Skip health check after deployment'
+        required: false
+        type: boolean
+        default: false
+  
+  # Automatic trigger when a release is published
+  release:
+    types: [published]
+  
+  # Can also be triggered by external systems (n8n, API call)
+  repository_dispatch:
+    types: [deploy-release]
+
+env:
+  APP_NAME: myapp
+  APP_DIR: /opt/myapp
+  JAVA_VERSION: '17'
+  HEALTH_CHECK_RETRIES: 6
+  HEALTH_CHECK_DELAY: 10
+
+jobs:
+  validate-release:
+    name: Validate Release Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get-version.outputs.version }}
+      download_url: ${{ steps.get-release.outputs.download_url }}
+      artifact_name: ${{ steps.get-release.outputs.artifact_name }}
+      release_notes: ${{ steps.get-release.outputs.release_notes }}
+    
+    steps:
+      - name: Determine version to deploy
+        id: get-version
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.release_version }}"
+          elif [ "${{ github.event_name }}" == "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+          elif [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+            VERSION="${{ github.event.client_payload.version }}"
+          else
+            echo "Unknown trigger event"
+            exit 1
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Deploying version: $VERSION"
+      
+      - name: Fetch release information
+        id: get-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.get-version.outputs.version }}"
+          
+          # Get release details using GitHub CLI
+          RELEASE_JSON=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            /repos/${{ github.repository }}/releases/tags/$VERSION)
+          
+          # Extract JAR artifact URL
+          DOWNLOAD_URL=$(echo "$RELEASE_JSON" | jq -r \
+            '.assets[] | select(.name | endswith(".jar") and (contains("sources") | not)) | .browser_download_url' \
+            | head -1)
+          
+          if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" == "null" ]; then
+            echo "Error: No JAR artifact found in release $VERSION"
+            exit 1
+          fi
+          
+          ARTIFACT_NAME=$(echo "$RELEASE_JSON" | jq -r \
+            '.assets[] | select(.name | endswith(".jar") and (contains("sources") | not)) | .name' \
+            | head -1)
+          
+          RELEASE_NOTES=$(echo "$RELEASE_JSON" | jq -r '.body // "No release notes available"')
+          
+          echo "download_url=$DOWNLOAD_URL" >> $GITHUB_OUTPUT
+          echo "artifact_name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
+          
+          # Save release notes to file (multiline output)
+          {
+            echo 'release_notes<<EOF'
+            echo "$RELEASE_NOTES"
+            echo EOF
+          } >> $GITHUB_OUTPUT
+          
+          echo "Found artifact: $ARTIFACT_NAME"
+          echo "Download URL: $DOWNLOAD_URL"
+      
+      - name: Verify release artifact is accessible
+        run: |
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -L "${{ steps.get-release.outputs.download_url }}")
+          
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "Error: Cannot access release artifact (HTTP $HTTP_STATUS)"
+            exit 1
+          fi
+          
+          echo "✓ Release artifact is accessible"
+
+  deploy-to-vm:
+    name: Deploy to VM
+    needs: validate-release
+    runs-on: ubuntu-latest
+    environment: 
+      name: ${{ github.event.inputs.environment || 'production' }}
+    
+    steps:
+      - name: Set environment variables
+        id: set-env
+        run: |
+          ENV="${{ github.event.inputs.environment || 'production' }}"
+          
+          # Set VM host based on environment
+          case "$ENV" in
+            production)
+              echo "VM_HOST=${{ secrets.PROD_VM_HOST }}" >> $GITHUB_OUTPUT
+              echo "VM_PORT=8080" >> $GITHUB_OUTPUT
+              ;;
+            staging)
+              echo "VM_HOST=${{ secrets.STAGING_VM_HOST }}" >> $GITHUB_OUTPUT
+              echo "VM_PORT=8080" >> $GITHUB_OUTPUT
+              ;;
+            development)
+              echo "VM_HOST=${{ secrets.DEV_VM_HOST }}" >> $GITHUB_OUTPUT
+              echo "VM_PORT=8080" >> $GITHUB_OUTPUT
+              ;;
+          esac
+      
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VM_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          
+          # Add VM to known hosts
+          ssh-keyscan -H ${{ steps.set-env.outputs.VM_HOST }} >> ~/.ssh/known_hosts
+      
+      - name: Check current version on VM
+        id: current-version
+        run: |
+          CURRENT_VERSION=$(ssh -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            ${{ secrets.VM_USER }}@${{ steps.set-env.outputs.VM_HOST }} \
+            "cat ${{ env.APP_DIR }}/current/VERSION 2>/dev/null || echo 'unknown'")
+          
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "Current version on VM: $CURRENT_VERSION"
+          echo "Target version: ${{ needs.validate-release.outputs.version }}"
+          
+          if [ "$CURRENT_VERSION" == "${{ needs.validate-release.outputs.version }}" ]; then
+            echo "⚠️  Warning: Target version is already deployed"
+          fi
+      
+      - name: Pre-deployment checks
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            ${{ secrets.VM_USER }}@${{ steps.set-env.outputs.VM_HOST }} << 'ENDSSH'
+            
+            # Check if application is running
+            if systemctl is-active --quiet ${{ env.APP_NAME }}; then
+              echo "✓ Application is currently running"
+            else
+              echo "⚠️  Warning: Application is not running"
+            fi
+            
+            # Check disk space
+            AVAILABLE_SPACE=$(df -BG ${{ env.APP_DIR }} | awk 'NR==2 {print $4}' | sed 's/G//')
+            if [ "$AVAILABLE_SPACE" -lt 5 ]; then
+              echo "Error: Insufficient disk space (${AVAILABLE_SPACE}GB available)"
+              exit 1
+            fi
+            echo "✓ Sufficient disk space: ${AVAILABLE_SPACE}GB"
+            
+            # Verify directory structure exists
+            for dir in current releases backup logs; do
+              if [ ! -d "${{ env.APP_DIR }}/$dir" ]; then
+                echo "Creating directory: ${{ env.APP_DIR }}/$dir"
+                sudo mkdir -p ${{ env.APP_DIR }}/$di

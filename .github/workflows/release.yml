@@ -1,0 +1,44 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      
+      - name: Build application
+        run: |
+          ./mvnw clean package -DskipTests
+          mv target/*.jar target/springboot-order-service-${{ steps.version.outputs.VERSION }}.jar
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: target/springboot-order-service-${{ steps.version.outputs.VERSION }}.jar
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      # - name: Upload to artifact repository (optional)
+      #   run: |
+      #     # Upload to Nexus/Artifactory
+      #     curl -u ${{ secrets.NEXUS_USER }}:${{ secrets.NEXUS_PASSWORD }} \
+      #       --upload-file target/springboot-order-service-${{ steps.version.outputs.VERSION }}.jar \
+      #       https://nexus.yourcompany.com/repository/releases/
