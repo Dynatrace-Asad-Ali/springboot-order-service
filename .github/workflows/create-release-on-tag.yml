@@ -38,11 +38,11 @@ jobs:
       
       - name: Update pom.xml to match tag version
         run: |
-          mvn versions:set -DnewVersion=${{ steps.version.outputs.version }} -DgenerateBackupPoms=false
+          ./mvnw versions:set -DnewVersion=${{ steps.version.outputs.version }} -DgenerateBackupPoms=false
       
       - name: Build with Maven
         run: |
-          mvn clean package -DskipTests
+          ./mvnw clean package -DskipTests
           
           ARTIFACT_ID=$(grep -oPm1 "(?<=<artifactId>)[^<]+" pom.xml | head -1)
           JAR_NAME="$ARTIFACT_ID-${{ steps.version.outputs.version }}.jar"
@@ -55,7 +55,7 @@ jobs:
           echo "JAR_NAME=$JAR_NAME" >> $GITHUB_ENV
       
       - name: Run tests
-        run: mvn test
+        run: ./mvnw test
       
       - name: Generate changelog
         id: changelog
