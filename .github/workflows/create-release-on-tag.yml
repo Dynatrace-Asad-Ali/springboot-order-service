@@ -44,7 +44,7 @@ jobs:
         run: |
           ./mvnw clean package -DskipTests
           
-          ARTIFACT_ID=$(grep -oPm1 "(?<=<artifactId>)[^<]+" pom.xml | head -1)
+          ARTIFACT_ID=$(./mvnw help:evaluate -Dexpression=project.artifactId -q -DforceStdout)
           JAR_NAME="$ARTIFACT_ID-${{ steps.version.outputs.version }}.jar"
           
           if [ ! -f "target/$JAR_NAME" ]; then
