@@ -75,19 +75,61 @@ jobs:
               echo "⚠️  Warning: Application is not running"
             fi
           ENDSSH
-      
+      - name: Stop Application on VM
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            #!/bin/bash
+            set -e
+            
+            echo "=== Stopping Application ==="
+            
+            # Find process - try multiple patterns
+            PID=$(ps -ef | grep OrderServiceLoadGenerator | grep -v grep | awk '{print $2}')
+            
+            # Alternative if first method doesn't work
+            if [ -z "$PID" ]; then
+              PID=$(ps -ef | grep "springboot-order-service" | grep -v grep | awk '{print $2}')
+            fi
+            
+            # Another alternative
+            if [ -z "$PID" ]; then
+              PID=$(pgrep -f "OrderServiceLoadGenerator")
+            fi
+            
+            if [ -z "$PID" ]; then
+              echo "⚠️  No process found (may not be running)"
+            else
+              echo "Found PID: $PID"
+              
+              # Kill process
+              kill $PID || true
+              
+              # Wait for shutdown
+              for i in {1..10}; do
+                if ! ps -p $PID > /dev/null 2>&1; then
+                  echo "✓ Process stopped"
+                  break
+                fi
+                sleep 1
+              done
+              
+              # Force kill if still running
+              if ps -p $PID > /dev/null 2>&1; then
+                echo "Force killing..."
+                kill -9 $PID || true
+              fi
+            fi
+            
+            echo "=== Stop Complete ==="
+
       - name: Download and deploy release
         run: |
           ssh -i ~/.ssh/deploy_key ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} << ENDSSH
             set -e
-            
-            # Stop application
-            echo "Stopping application..."
-            pid=$(sudo ps -ef | grep OrderServiceLoadGenerator | grep -v grep | awk '{print $2}')
-            echo "PID: $pid"
-            kill -9 $pid
-            sleep 3
-            
             # Deploy new version
             mvn exec:java -Dexec.mainClass="com.example.ecommerce.loadtest.OrderServiceLoadGenerator" -Dexec.args="-f -r 5 -t 5 -s 0"            
             echo "✓ Deployment initiated"
