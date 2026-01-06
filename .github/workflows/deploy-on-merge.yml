@@ -80,7 +80,7 @@ jobs:
         with:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
-          key: ${{ secrets.VM_SSH_KEY }}
+          key: ${{ secrets.VM_SSH_PRIVATE_KEY }}
           script: |
             #!/bin/bash
             set -e
