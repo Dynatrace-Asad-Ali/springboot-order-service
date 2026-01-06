@@ -56,57 +56,7 @@ jobs:
     if: needs.detect-version-change.outputs.version != ''
     runs-on: ubuntu-latest
     
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Validate release exists
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${{ needs.detect-version-change.outputs.version }}"
-          
-          echo "Validating release: $VERSION"
-          
-          if ! gh release view "$VERSION" >/dev/null 2>&1; then
-            echo "Error: Release $VERSION not found"
-            exit 1
-          fi
-          
-          echo "✓ Release $VERSION exists"
-      
-      - name: Get release artifact URL
-        id: get-artifact
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${{ needs.detect-version-change.outputs.version }}"
-          
-          # Get release assets
-          RELEASE_JSON=$(gh api \
-            -H "Accept: application/vnd.github+json" \
-            /repos/${{ github.repository }}/releases/tags/$VERSION)
-          
-          # Find JAR artifact
-          DOWNLOAD_URL=$(echo "$RELEASE_JSON" | jq -r \
-            '.assets[] | select(.name | endswith(".jar") and (contains("sources") | not)) | .browser_download_url' \
-            | head -1)
-          
-          ARTIFACT_NAME=$(echo "$RELEASE_JSON" | jq -r \
-            '.assets[] | select(.name | endswith(".jar") and (contains("sources") | not)) | .name' \
-            | head -1)
-          
-          if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" == "null" ]; then
-            echo "Error: No JAR artifact found in release $VERSION"
-            exit 1
-          fi
-          
-          echo "download_url=$DOWNLOAD_URL" >> $GITHUB_OUTPUT
-          echo "artifact_name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
-          
-          echo "Artifact: $ARTIFACT_NAME"
-          echo "URL: $DOWNLOAD_URL"
-      
+    steps:            
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
@@ -118,191 +68,26 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} << 'ENDSSH'
             # Check application status
-            if systemctl is-active --quiet myapp; then
+            running=$(ps -ef | grep OrderServiceLoadGenerator | grep -v grep | wc -l)
+            if [ "$running" -gt 0 ]; then
               echo "✓ Application is running"
             else
               echo "⚠️  Warning: Application is not running"
             fi
-            
-            # Check disk space
-            AVAILABLE=$(df -BG /opt/myapp | awk 'NR==2 {print $4}' | sed 's/G//')
-            if [ "$AVAILABLE" -lt 2 ]; then
-              echo "Error: Insufficient disk space"
-              exit 1
-            fi
-            echo "✓ Disk space: ${AVAILABLE}GB available"
-            
-            # Ensure directories exist
-            sudo mkdir -p /opt/myapp/{current,releases,backup,logs}
-          ENDSSH
-      
-      - name: Backup current version
-        run: |
-          ssh -i ~/.ssh/deploy_key ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} << 'ENDSSH'
-            if [ -f "/opt/myapp/current/app.jar" ]; then
-              TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-              CURRENT_VER=$(cat /opt/myapp/current/VERSION 2>/dev/null || echo "unknown")
-              BACKUP_NAME="app-${CURRENT_VER}-${TIMESTAMP}.jar"
-              
-              sudo cp /opt/myapp/current/app.jar /opt/myapp/backup/$BACKUP_NAME
-              echo "✓ Backup created: $BACKUP_NAME"
-              
-              # Keep only last 10 backups
-              cd /opt/myapp/backup
-              ls -t app-*.jar | tail -n +11 | xargs -r sudo rm
-            fi
           ENDSSH
       
       - name: Download and deploy release
-        env:
-          VERSION: ${{ needs.detect-version-change.outputs.version }}
-          DOWNLOAD_URL: ${{ steps.get-artifact.outputs.download_url }}
-          ARTIFACT_NAME: ${{ steps.get-artifact.outputs.artifact_name }}
         run: |
           ssh -i ~/.ssh/deploy_key ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} << ENDSSH
             set -e
             
-            echo "Deploying version: $VERSION"
-            
-            # Download release artifact
-            cd /opt/myapp/releases
-            if [ ! -f "$ARTIFACT_NAME" ]; then
-              echo "Downloading artifact..."
-              wget -q --show-progress -O "$ARTIFACT_NAME" "$DOWNLOAD_URL"
-              echo "✓ Downloaded: $ARTIFACT_NAME"
-            else
-              echo "✓ Artifact already cached"
-            fi
-            
-            # Verify JAR integrity
-            if ! unzip -t "$ARTIFACT_NAME" >/dev/null 2>&1; then
-              echo "Error: JAR file is corrupted"
-              rm -f "$ARTIFACT_NAME"
-              exit 1
-            fi
-            
             # Stop application
             echo "Stopping application..."
-            sudo systemctl stop myapp
+            ps -ef | grep OrderServiceLoad | grep -v grep | awk '{print $2}' | xargs kill -9
             sleep 3
             
             # Deploy new version
-            sudo cp /opt/myapp/releases/$ARTIFACT_NAME /opt/myapp/current/app.jar
-            sudo chown ${{ secrets.VM_USER }}:${{ secrets.VM_USER }} /opt/myapp/current/app.jar
-            
-            # Update version file
-            echo "$VERSION" | sudo tee /opt/myapp/current/VERSION
-            
-            # Start application
-            echo "Starting application..."
-            sudo systemctl start myapp
-            
+            mvn exec:java -Dexec.mainClass="com.example.ecommerce.loadtest.OrderServiceLoadGenerator" -Dexec.args="-f -r 5 -t 5 -s 0"            
             echo "✓ Deployment initiated"
           ENDSSH
       
-      - name: Health check
-        timeout-minutes: 5
-        run: |
-          echo "Waiting for application startup..."
-          sleep 20
-          
-          for i in {1..10}; do
-            echo "Health check attempt $i/10..."
-            
-            if ssh -i ~/.ssh/deploy_key ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} \
-              "curl -sf http://localhost:8080/actuator/health" >/dev/null 2>&1; then
-              echo "✓ Application is healthy!"
-              exit 0
-            fi
-            
-            if [ $i -lt 10 ]; then
-              echo "Waiting 10 seconds..."
-              sleep 10
-            fi
-          done
-          
-          echo "❌ Health check failed"
-          exit 1
-      
-      - name: Verify deployed version
-        run: |
-          DEPLOYED_VERSION=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} \
-            "curl -s http://localhost:8080/actuator/info | jq -r '.app.version'")
-          
-          EXPECTED="${{ needs.detect-version-change.outputs.version }}"
-          EXPECTED_CLEAN=$(echo "$EXPECTED" | sed 's/^v//')
-          
-          echo "Expected: $EXPECTED_CLEAN"
-          echo "Deployed: $DEPLOYED_VERSION"
-          
-          if [ "$DEPLOYED_VERSION" == "$EXPECTED_CLEAN" ]; then
-            echo "✓ Version verified"
-          else
-            echo "⚠️  Version mismatch"
-          fi
-      
-      - name: Notify Dynatrace
-        if: success()
-        run: |
-          curl -X POST "${{ secrets.DYNATRACE_API_URL }}/api/v1/events" \
-            -H "Authorization: Api-Token ${{ secrets.DYNATRACE_API_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d @- << EOF
-          {
-            "eventType": "CUSTOM_DEPLOYMENT",
-            "source": "GitHub Actions - Auto Deploy",
-            "deploymentName": "Automated Rollback Deployment",
-            "deploymentVersion": "${{ needs.detect-version-change.outputs.version }}",
-            "deploymentProject": "${{ github.repository }}",
-            "ciBackLink": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-            "remediationAction": "Rollback from ${{ needs.detect-version-change.outputs.previous_version }}",
-            "attachRules": {
-              "tagRule": {
-                "meTypes": ["SERVICE"],
-                "tags": ["github_repo:${{ github.repository }}"]
-              }
-            }
-          }
-          EOF
-
-  rollback-on-failure:
-    name: Rollback on Failure
-    needs: [detect-version-change, deploy-to-vm]
-    if: failure()
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Setup SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.VM_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
-      
-      - name: Restore from backup
-        run: |
-          ssh -i ~/.ssh/deploy_key ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} << 'ENDSSH'
-            echo "🔄 Initiating rollback..."
-            
-            sudo systemctl stop myapp
-            
-            LATEST_BACKUP=$(ls -t /opt/myapp/backup/app-*.jar 2>/dev/null | head -1)
-            
-            if [ -n "$LATEST_BACKUP" ]; then
-              echo "Restoring: $LATEST_BACKUP"
-              sudo cp "$LATEST_BACKUP" /opt/myapp/current/app.jar
-              sudo systemctl start myapp
-              sleep 15
-              
-              if systemctl is-active --quiet myapp; then
-                echo "✓ Rollback successful"
-              else
-                echo "❌ Rollback failed"
-                exit 1
-              fi
-            else
-              echo "❌ No backup available"
-              exit 1
-            fi
-          ENDSSH
-
