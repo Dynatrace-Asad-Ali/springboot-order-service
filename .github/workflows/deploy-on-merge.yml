@@ -130,7 +130,7 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} << ENDSSH
             set -e
-            cd /home/ubuntu/springboot-order-service
+            cd /home/ubuntu/dev/springboot-order-service
             # Deploy new version
             mvn exec:java -Dexec.mainClass="com.example.ecommerce.loadtest.OrderServiceLoadGenerator" -Dexec.args="-f -r 5 -t 5 -s 0"            
             echo "✓ Deployment initiated"
