@@ -133,7 +133,7 @@ jobs:
             set -e
             cd /home/ubuntu/dev/springboot-order-service
             # Deploy new version
-            mvn exec:java -Dexec.mainClass="com.example.ecommerce.loadtest.OrderServiceLoadGenerator" -Dexec.args="-f -r 5 -t 5 -s 0"            
+            nohup mvn exec:java -Dexec.mainClass="com.example.ecommerce.loadtest.OrderServiceLoadGenerator" -Dexec.args="-f -r 5 -t 5 -s 0"  > nohup.out 2>&1 &
             echo "✓ Deployment initiated"
           ENDSSH
       
