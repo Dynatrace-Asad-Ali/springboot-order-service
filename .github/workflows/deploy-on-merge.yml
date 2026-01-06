@@ -305,26 +305,4 @@ jobs:
               exit 1
             fi
           ENDSSH
-```
 
----
-
-## Step 2: n8n Workflow Nodes
-
-### Complete n8n Node Sequence
-```
-[Dynatrace Problem] → [Extract Data] → [Get Current Version] (Dynatrace MCP)
-    ↓
-[List Releases] (GitHub MCP) → [Select Rollback Version] (Code)
-    ↓
-[Get Release Details] (GitHub MCP) → [Validate Artifact] (Code)
-    ↓
-[Create Rollback Branch] (GitHub MCP) → [Update Version File] (GitHub MCP)
-    ↓
-[Create Pull Request] (GitHub MCP) → [Enable Auto-Merge] (HTTP Request)
-    ↓
-[Wait for Merge] (Webhook/Polling) → [Monitor Deployment] (GitHub MCP)
-    ↓
-[Verify in Dynatrace] (Dynatrace MCP) → [Create Jira Ticket] (Jira MCP)
-    ↓
-[Slack Notification]
