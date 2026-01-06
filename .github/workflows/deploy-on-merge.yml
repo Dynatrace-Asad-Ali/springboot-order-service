@@ -83,7 +83,7 @@ jobs:
             
             # Stop application
             echo "Stopping application..."
-            pid=$(ps -ef | grep OrderServiceLoadGenerator | grep -v grep | awk '{print $2}')
+            pid=$(sudo ps -ef | grep OrderServiceLoadGenerator | grep -v grep | awk '{print $2}')
             echo "PID: $pid"
             kill -9 $pid
             sleep 3
