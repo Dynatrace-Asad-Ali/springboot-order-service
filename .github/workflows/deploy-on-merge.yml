@@ -83,7 +83,9 @@ jobs:
             
             # Stop application
             echo "Stopping application..."
-            ps -ef | grep OrderServiceLoad | grep -v grep | awk '{print $2}' | xargs kill -9
+            pid=$(ps -ef | grep OrderServiceLoadGenerator | grep -v grep | awk '{print $2}')
+            echo "PID: $pid"
+            kill -9 $pid
             sleep 3
             
             # Deploy new version
