@@ -89,29 +89,27 @@ jobs:
             echo "=== Stopping Application ==="
             
             # Find process - try multiple patterns
-            PID=$(ps -ef | grep OrderServiceLoadGenerator | grep -v grep | awk '{print $2}')
-            
-            # Alternative if first method doesn't work
-            if [ -z "$PID" ]; then
-              PID=$(ps -ef | grep "springboot-order-service" | grep -v grep | awk '{print $2}')
-            fi
-            
+            PID-Load-Generator=$(ps -ef | grep OrderServiceLoadGenerator | grep -v grep | awk '{print $2}')
+            PID-App=$(ps -ef | grep "ecommerce-order-service-1.0.0.jar" | grep -v grep | awk '{print $2}')
+
             # Another alternative
-            if [ -z "$PID" ]; then
-              PID=$(pgrep -f "OrderServiceLoadGenerator")
+            if [ -z "$PID-Load-Generator" ]; then
+              PID-Load-Generator=$(pgrep -f "OrderServiceLoadGenerator")
             fi
             
-            if [ -z "$PID" ]; then
+            if [ -z "$PID-App"  && -z "$PID-Load-Generator" ]; then
               echo "⚠️  No process found (may not be running)"
             else
-              echo "Found PID: $PID"
+              echo "Found PID: $PID-Load-Generator"
+              echo "Found PID: $PID-App"
               
               # Kill process
-              kill $PID || true
+              kill $PID-Load-Generator || true
+              kill $PID-App || true
               
               # Wait for shutdown
               for i in {1..10}; do
-                if ! ps -p $PID > /dev/null 2>&1; then
+                if ! ps -p $PID-Load-Generator   > /dev/null 2>&1; then
                   echo "✓ Process stopped"
                   break
                 fi
@@ -119,9 +117,10 @@ jobs:
               done
               
               # Force kill if still running
-              if ps -p $PID > /dev/null 2>&1; then
+              if ps -p $PID-Load-Generator > /dev/null 2>&1; then
                 echo "Force killing..."
-                kill -9 $PID || true
+                kill -9 $PID-Load-Generator || true
+                kill -9 $PID-App || true
               fi
             fi
             
@@ -133,7 +132,8 @@ jobs:
             set -e
             cd /home/ubuntu/dev/springboot-order-service
             # Deploy new version
-            nohup mvn exec:java -Dexec.mainClass="com.example.ecommerce.loadtest.OrderServiceLoadGenerator" -Dexec.args="-f -r 5 -t 5 -s 0"  > nohup.out 2>&1 &
+            export DT_CUSTOM_PROP=Github_Repo=https://github.com/Dynatrace-Asad-Ali/springboot-order-service Release_Version=v0.9.1
+            nohup mvn exec:java -Dexec.mainClass="com.example.ecommerce.loadtest.OrderServiceLoadGenerator" -Dexec.args="-f -r 5 -t 20 -s 0"  > nohup.out 2>&1 &
             echo "✓ Deployment initiated"
           ENDSSH
       
