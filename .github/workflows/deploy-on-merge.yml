@@ -89,29 +89,29 @@ jobs:
             echo "=== Stopping Application ==="
             
             # Find process - try multiple patterns
-            PID-Load-Generator=$(ps -ef | grep OrderServiceLoadGenerator | grep -v grep | awk '{print $2}')
-            echo "Found PID: $PID-Load-Generator"
-            PID-App=$(ps -ef | grep "ecommerce-order-service-1.0.0.jar" | grep -v grep | awk '{print $2}')
-            echo "Found PID: $PID-App"
+            PID_Load_Generator=$(ps -ef | grep OrderServiceLoadGenerator | grep -v grep | awk '{print $2}')
+            echo "Found PID: $PID_Load_Generator"
+            PID_App=$(ps -ef | grep "ecommerce-order-service-1.0.0.jar" | grep -v grep | awk '{print $2}')
+            echo "Found PID: $PID_App"
 
             # Another alternative
-            if [ -z "$PID-Load-Generator" ]; then
-              PID-Load-Generator=$(pgrep -f "OrderServiceLoadGenerator")
+            if [ -z "$PID_Load_Generator" ]; then
+              PID_Load_Generator=$(pgrep -f "OrderServiceLoadGenerator")
             fi
             
-            if [ -z "$PID-App"  && -z "$PID-Load-Generator" ]; then
+            if [ -z "$PID_App"  && -z "$PID_Load_Generator" ]; then
               echo "⚠️  No process found (may not be running)"
             else
-              echo "Found PID: $PID-Load-Generator"
-              echo "Found PID: $PID-App"
+              echo "Found PID: $PID_Load_Generator"
+              echo "Found PID: $PID_App"
               
               # Kill process
-              kill $PID-Load-Generator || true
-              kill $PID-App || true
+              kill $PID_Load_Generator || true
+              kill $PID_App || true
               
               # Wait for shutdown
               for i in {1..10}; do
-                if ! ps -p $PID-Load-Generator   > /dev/null 2>&1; then
+                if ! ps -p $PID_Load_Generator   > /dev/null 2>&1; then
                   echo "✓ Process stopped"
                   break
                 fi
