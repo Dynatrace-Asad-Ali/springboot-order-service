@@ -90,7 +90,9 @@ jobs:
             
             # Find process - try multiple patterns
             PID-Load-Generator=$(ps -ef | grep OrderServiceLoadGenerator | grep -v grep | awk '{print $2}')
+            echo "Found PID: $PID-Load-Generator"
             PID-App=$(ps -ef | grep "ecommerce-order-service-1.0.0.jar" | grep -v grep | awk '{print $2}')
+            echo "Found PID: $PID-App"
 
             # Another alternative
             if [ -z "$PID-Load-Generator" ]; then
