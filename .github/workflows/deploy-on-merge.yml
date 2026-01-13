@@ -135,6 +135,7 @@ jobs:
             cd /home/ubuntu/dev/springboot-order-service
             # Deploy new version
             export DT_CUSTOM_PROP=Github_Repo=https://github.com/Dynatrace-Asad-Ali/springboot-order-service Release_Version=v0.9.1
+            nohup java -jar target/ecommerce-order-service-1.0.0.jar &
             nohup mvn exec:java -Dexec.mainClass="com.example.ecommerce.loadtest.OrderServiceLoadGenerator" -Dexec.args="-f -r 5 -t 20 -s 0"  > nohup.out 2>&1 &
             echo "✓ Deployment initiated"
           ENDSSH
